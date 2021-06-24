@@ -288,6 +288,8 @@ github.com/gorilla/mux v1.6.2/go.mod h1:1lud6UwP+6orDFRuTfBEV8e9/aOM/c4fVVCaMa2z
 github.com/gorilla/mux v1.7.3/go.mod h1:1lud6UwP+6orDFRuTfBEV8e9/aOM/c4fVVCaMa2zaAs=
 github.com/gorilla/mux v1.8.0 h1:i40aqfkR1h2SlN9hojwV5ZA91wcXFOvkdNIeFDP5koI=
 github.com/gorilla/mux v1.8.0/go.mod h1:DVbg23sWSpFRCP0SfiEN6jmj59UnW/n46BH5rLB71So=
+github.com/gorilla/rpc v1.2.0 h1:WvvdC2lNeT1SP32zrIce5l0ECBfbAlmrmSBsuc57wfk=
+github.com/gorilla/rpc v1.2.0/go.mod h1:V4h9r+4sF5HnzqbwIez0fKSpANP0zlYd3qR7p36jkTQ=
 github.com/gorilla/websocket v0.0.0-20170926233335-4201258b820c/go.mod h1:E7qHFY5m1UJ88s3WnNqhKjPHQ0heANvMoAMk2YaljkQ=
 github.com/gorilla/websocket v1.4.0/go.mod h1:E7qHFY5m1UJ88s3WnNqhKjPHQ0heANvMoAMk2YaljkQ=
 github.com/gorilla/websocket v1.4.1/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
@@ -980,6 +982,8 @@ gitlab.com/thorchain/binance-sdk v1.2.3-0.20210102180356-7b2f8924ed23 h1:lecwYSM
 gitlab.com/thorchain/binance-sdk v1.2.3-0.20210102180356-7b2f8924ed23/go.mod h1:SW01IZMpqlPNPdhHnn99qnJNvg8ll/agyyW7p85npwY=
 gitlab.com/thorchain/tss/go-tss v1.3.0 h1:bxeuCOBivwEEXeKelpaPaWaSDfpJ+0YewHKX8cBMmQY=
 gitlab.com/thorchain/tss/go-tss v1.3.0/go.mod h1:9lAZE2pzzDhWO+ZXYAhlBE47YMXjPDU/PtAdjdw59tc=
+gitlab.com/thorchain/tss/monero-wallet-rpc v0.0.0-20210218003947-4f915449c4e4 h1:4Byz3/LOfJDtJyjf94h4D3PSz07cAWpbJnMnhH5Zr2E=
+gitlab.com/thorchain/tss/monero-wallet-rpc v0.0.0-20210218003947-4f915449c4e4/go.mod h1:J+XZjMbgNzg0JwB0EYQVW3Vu9xOIeKGVLipRdMu5ptE=
 gitlab.com/thorchain/tss/tss-lib v0.0.0-20201118045712-70b2cb4bf916 h1:rM3TjCVZzn3cYQV1L8KuvwXOZ5yvMdB2C5YyExI/m9Y=
 gitlab.com/thorchain/tss/tss-lib v0.0.0-20201118045712-70b2cb4bf916/go.mod h1:i7bv+PuILDZmCiU3mtZXgOfgQkWLdLngByT2KDfyzpE=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
