@@ -5,9 +5,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/libp2p/go-libp2p-peerstore/addr"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gitlab.com/thorchain/tss/go-tss/keysign"
+	moneroKeySign "gitlab.com/thorchain/tss/monero-tss/monero_multi_sig/keysign"
+	"unsafe"
+
+	coskey "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	"gitlab.com/thorchain/tss/go-tss/p2p"
 	"gitlab.com/thorchain/tss/go-tss/tss"
+	"gitlab.com/thorchain/tss/monero-tss/conversion"
+	moneroP2P "gitlab.com/thorchain/tss/monero-tss/p2p"
 	moneroTss "gitlab.com/thorchain/tss/monero-tss/tss"
 	"io/ioutil"
 	"os"
@@ -20,10 +31,14 @@ import (
 	btsskeygen "github.com/binance-chain/tss-lib/ecdsa/keygen"
 	maddr "github.com/multiformats/go-multiaddr"
 	"gitlab.com/thorchain/tss/go-tss/common"
-	"gitlab.com/thorchain/tss/go-tss/conversion"
 	"gitlab.com/thorchain/tss/go-tss/keygen"
+
+	"gitlab.com/thorchain/tss/go-tss/monitor"
+	"gitlab.com/thorchain/tss/go-tss/storage"
 	moneroCommon "gitlab.com/thorchain/tss/monero-tss/common"
 	moneroKeygen "gitlab.com/thorchain/tss/monero-tss/monero_multi_sig/keygen"
+	moneroMonitor "gitlab.com/thorchain/tss/monero-tss/monitor"
+	moneroStorage "gitlab.com/thorchain/tss/monero-tss/storage"
 )
 
 const (
@@ -72,9 +87,10 @@ func (s *FourDemoSuite) SetUpTest() error {
 	s.moneroServers = make([]*moneroTss.TssServer, partyNum)
 	s.rpcAddress = make([]string, partyNum)
 
-	remoteAddress := []string{"134.209.108.57", "167.99.11.83", "46.101.91.4", "134.209.35.249", "174.138.10.57", "134.209.101.44"}
+	remoteAddress := []string{"127.0.0.1", "127.0.0.1", "127.0.0.1", "127.0.0.1", "174.138.10.57", "134.209.101.44"}
 	for i := 0; i < partyNum; i++ {
-		rpcAddress := fmt.Sprintf("http://%s:18083/json_rpc", remoteAddress[i])
+		port := 18083 + i
+		rpcAddress := fmt.Sprintf("http://%s:%d/json_rpc", remoteAddress[i], port)
 		s.rpcAddress[i] = rpcAddress
 	}
 
@@ -92,6 +108,7 @@ func (s *FourDemoSuite) SetUpTest() error {
 		EnableMonitor:   false,
 	}
 	_ = moneroConf
+	_ = conf
 
 	var wg sync.WaitGroup
 	for i := 0; i < partyNum; i++ {
@@ -100,8 +117,10 @@ func (s *FourDemoSuite) SetUpTest() error {
 			var err error
 			defer wg.Done()
 			if idx == 0 {
-				s.servers[idx], err = s.getTssServer(idx, conf, "", "normal_tss")
+				//s.servers[idx], err = s.getTssServer(idx, conf, "", "normal_tss")
+				err = s.setupTwoTss(idx, "", conf, moneroConf)
 				if err != nil {
+					s.logger.Error().Err(err).Msgf("fail to setup tss bootstrap node")
 					globalErr = err
 				}
 				//s.moneroServers[idx], err = s.getMoneroTssServer(idx, moneroConf, "", "monero_tss")
@@ -110,10 +129,15 @@ func (s *FourDemoSuite) SetUpTest() error {
 				//}
 
 			} else {
-				s.servers[idx], err = s.getTssServer(idx, conf, s.bootstrapPeer, "normal_tss")
+				err = s.setupTwoTss(idx, s.bootstrapPeer, conf, moneroConf)
 				if err != nil {
+					s.logger.Error().Err(err).Msgf("fail to setup tss peer")
 					globalErr = err
 				}
+				//s.servers[idx], err = s.getTssServer(idx, conf, s.bootstrapPeer, "normal_tss")
+				//if err != nil {
+				//	globalErr = err
+				//}
 
 				//s.moneroServers[idx], err = s.getMoneroTssServer(idx, moneroConf, s.bootstrapPeer, "monero_tss")
 				//if err != nil {
@@ -141,7 +165,7 @@ func hash(payload []byte) []byte {
 }
 
 // generate a new key
-func (s *FourDemoSuite) doTestKeygen(newJoinParty bool) {
+func (s *FourDemoSuite) doTestKeygenGeneralTss(newJoinParty bool) {
 	wg := sync.WaitGroup{}
 	lock := &sync.Mutex{}
 	keygenResult := make(map[int]keygen.Response)
@@ -157,6 +181,37 @@ func (s *FourDemoSuite) doTestKeygen(newJoinParty bool) {
 				req = keygen.NewRequest(localPubKeys, 10, "0.13.0")
 			}
 			res, err := s.servers[idx].Keygen(req)
+			if err != nil {
+				s.logger.Error().Err(err).Msgf("fail to generate the key")
+			}
+			lock.Lock()
+			defer lock.Unlock()
+			keygenResult[idx] = res
+		}(i)
+	}
+	wg.Wait()
+
+	fmt.Printf("-------->pool address %v\n", keygenResult[0].PoolAddress)
+	return
+}
+
+// generate a new key
+func (s *FourDemoSuite) doTestKeygenMoneroTss(newJoinParty bool) {
+	wg := sync.WaitGroup{}
+	lock := &sync.Mutex{}
+	keygenResult := make(map[int]moneroKeygen.Response)
+	for i := 0; i < partyNum; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			var req moneroKeygen.Request
+			localPubKeys := append([]string{}, testPubKeys...)
+			if newJoinParty {
+				req = moneroKeygen.NewRequest(localPubKeys, 10, "0.14.0", s.rpcAddress[idx])
+			} else {
+				req = moneroKeygen.NewRequest(localPubKeys, 10, "0.13.0", s.rpcAddress[idx])
+			}
+			res, err := s.moneroServers[idx].Keygen(req)
 			if err != nil {
 				s.logger.Error().Err(err).Msgf("fail to generate the key")
 			}
@@ -294,6 +349,105 @@ func (s *FourDemoSuite) moneroDoTestKeygen(newJoinParty bool) error {
 	return globalErr
 }
 
+func (s *FourDemoSuite) setupP2PNetwork(cmdBootstrapPeers addr.AddrList, rendezvous, externalIP string, p2pPort int, priKey string) (*p2p.Communication, error) {
+
+	priKeyRaw, err := conversion.GetPriKey(priKey)
+
+	var bootstrapPeers addr.AddrList
+	bootstrapPeers = cmdBootstrapPeers
+
+	comm, err := p2p.NewCommunication(rendezvous, bootstrapPeers, p2pPort, externalIP)
+	if err != nil {
+		return nil, fmt.Errorf("fail to create communication layer: %w", err)
+	}
+
+	priKeyRawBytes, err := conversion.GetPriKeyRawBytes(priKeyRaw)
+	if err != nil {
+		return nil, fmt.Errorf("fail to get private key")
+	}
+	if err := comm.Start(priKeyRawBytes); nil != err {
+		return nil, fmt.Errorf("fail to start p2p network: %w", err)
+	}
+
+	return comm, nil
+
+}
+
+func (s *FourDemoSuite) setupTwoTss(index int, bootstrap string, config common.TssConfig, moneroConfig moneroCommon.TssConfig) error {
+
+	priKey, err := conversion.GetPriKey(testPriKeyArr[index])
+	if err != nil {
+		return err
+	}
+
+	pk := coskey.PubKey{
+		Key: priKey.PubKey().Bytes()[:],
+	}
+	baseHome := path.Join(os.TempDir(), strconv.Itoa(index))
+	if _, err := os.Stat(baseHome); os.IsNotExist(err) {
+		err := os.Mkdir(baseHome, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+	pubKey, err := sdk.Bech32ifyPubKey(sdk.Bech32PubKeyTypeAccPub, &pk)
+	if err != nil {
+		return fmt.Errorf("fail to genearte the key: %w", err)
+	}
+	var peerIDs []maddr.Multiaddr
+	if len(bootstrap) > 0 {
+		multiAddr, err := maddr.NewMultiaddr(bootstrap)
+		if err != nil {
+			return err
+		}
+		peerIDs = []maddr.Multiaddr{multiAddr}
+	} else {
+		peerIDs = nil
+	}
+
+	comm, err := s.setupP2PNetwork(peerIDs, "tss", "", s.ports[index], testPriKeyArr[index])
+	if err != nil {
+		return err
+	}
+	metrics := monitor.NewMetric()
+	if config.EnableMonitor {
+		metrics.Enable()
+	}
+
+	moneroMetrics := moneroMonitor.NewMetric()
+	if moneroConfig.EnableMonitor {
+		metrics.Enable()
+	}
+	// create the general tss instance
+	{
+		stateManager, err := storage.NewFileStateMgr(baseHome)
+		if err != nil {
+			return fmt.Errorf("fail to create file state manager")
+		}
+		tssPc := p2p.NewPartyCoordinator(comm.GetHost(), config.PartyTimeout)
+		tssSigNotifier := keysign.NewSignatureNotifier(comm.GetHost())
+
+		generalTss := tss.NewTssWithNoNetworkSetup(config, comm, pubKey, s.preParams[index], tssPc, stateManager, tssSigNotifier, priKey, metrics)
+		s.servers[index] = generalTss
+	}
+
+	{
+		stateManager, err := moneroStorage.NewFileStateMgr(baseHome)
+		if err != nil {
+			return fmt.Errorf("fail to create file state manager")
+		}
+		tssPc := moneroP2P.NewPartyCoordinator(comm.GetHost(), config.PartyTimeout)
+		tssSigNotifier := moneroKeySign.NewSignatureNotifier(comm.GetHost())
+
+		var monerop2p = (*moneroP2P.Communication)(unsafe.Pointer(comm))
+		moneroTss := moneroTss.NewTssWithNoNetworkSetup(moneroConfig, monerop2p, pubKey, s.preParams[index], tssPc, stateManager, tssSigNotifier, priKey, moneroMetrics)
+		s.moneroServers[index] = moneroTss
+
+	}
+
+	return nil
+}
+
 func main() {
 	instance := FourDemoSuite{}
 
@@ -306,6 +460,7 @@ func main() {
 		fmt.Printf("system fail to start")
 	}
 
-	instance.doTestKeygen(true)
+	instance.doTestKeygenGeneralTss(true)
+	instance.doTestKeygenMoneroTss(true)
 
 }
